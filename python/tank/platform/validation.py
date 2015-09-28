@@ -20,6 +20,8 @@ from . import constants
 from ..errors import TankError
 from ..template import TemplateString
 
+from ..deploy import util
+
 def validate_schema(app_or_engine_display_name, schema):
     """
     Validates the schema definition (info.yml) of an app or engine.
@@ -82,13 +84,79 @@ def get_missing_frameworks(descriptor, environment):
     Returns a list of framework descriptors by the given descriptor required but not present 
     in the given environment.
     
+    returns items on the following form: 
+    
+    [{'status': 'outdated', 'min_version': 'v2.1.0', 'version': 'v2.x.x', 'name': 'tk-framework-shotgunutils'}, 
+     {'status': 'missing', 'version': 'v1.x.x', 'name': 'tk-framework-qtwidgets'},
+     {'status': 'missing', 'version': 'v0.1.0', 'name': 'tk-framework-widget'}]    
+    
+    :param descriptor: Descriptor object to validate frameworks for
+    :param environment: Environment object to validate against
+    :returns: list dictionaries, each with a name and a version key.
+    """
+    required_frameworks = descriptor.get_required_frameworks()
+    current_framework_instances = environment.get_frameworks()
+    
+    if len(required_frameworks) == 0:
+        return []
+
+    missing_fws = []
+    for required_fw in required_frameworks:
+        # the required_frameworks structure in the info.yml
+        # is a list of dicts, each dict having a name and a version key
+        name = required_fw.get("name")
+        version = required_fw.get("version")
+
+        # find it by naming convention based on the instance name        
+        required_fw_instance = "%s_%s" % (name, version)
+
+        if required_fw_instance not in current_framework_instances:
+            required_fw["status"] = "missing"
+            missing_fws.append(required_fw)
+            
+        elif "min_version" in required_fw:
+            # the framework is already defined in the environment
+            # but the descriptor manifest states that a minumum
+            # version of the framework is required:
+            #
+            # for example like this in info.yml:
+            #
+            # frameworks:
+            #     - {"name": "tk-framework-shotgunutils", "version": "v2.x.x", "min_version": "v2.1.0"}
+            #     - {"name": "tk-framework-qtwidgets", "version": "v1.x.x"}
+            #
+            # make sure that the installed framework has that level or higher
+            minimum_required_ver = required_fw["min_version"]
+             
+            # get the version of the current fw
+            installed_fw_descriptor = environment.get_framework_descriptor(required_fw_instance)            
+            fw_version = installed_fw_descriptor.get_version()
+             
+            if util.is_version_older(fw_version, minimum_required_ver):
+                required_fw["status"] = "outdated"
+                missing_fws.append(required_fw)
+
+    print missing_fws           
+    return missing_fws
+
+def get_outdated_frameworks(descriptor, environment):
+    """
+    Looks at the given descriptor and checks that 
+    
+    Returns a list of framework descriptors by the given descriptor required but not present 
+    in the given environment.
+    
     returns items on the following form:
     [{'version': 'v0.1.0', 'name': 'tk-framework-widget'}]
     
     :returns: list dictionaries, each with a name and a version key.
     """
     required_frameworks = descriptor.get_required_frameworks()
+    print "required frameworks: %s" % required_frameworks 
+    
+    
     current_framework_instances = environment.get_frameworks()
+    print "current fraemworks: %s" % current_framework_instances 
     
     if len(required_frameworks) == 0:
         return []
@@ -107,7 +175,6 @@ def get_missing_frameworks(descriptor, environment):
             missing_fws.append(fw)
 
     return missing_fws
-
     
     
 def validate_and_return_frameworks(descriptor, environment):
