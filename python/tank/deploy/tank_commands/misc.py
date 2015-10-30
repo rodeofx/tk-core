@@ -71,31 +71,23 @@ class ClearCacheAction(Action):
         
         log.info("The Shotgun menu cache has been cleared.")
 
-class InteractiveShellAction(Action):
-    """
-    Action that starts an interactive shell
-    """
-    def __init__(self):
-        Action.__init__(self, 
-                        "shell", 
-                        Action.TK_INSTANCE, 
-                        "Starts an interactive Python shell for the current location.", 
-                        "Developer")
-        
+
+class InterpreterAction(Action):
+
+    def __init__(self, *args, **kwargs):
+        Action.__init__(self, *args, **kwargs)
         # hint that the shell engine should be started for this action, if possible
         self.wants_running_shell_engine = True
-        
-    def run_interactive(self, log, args):
 
-        if len(args) != 0:
-            raise TankError("This command takes no arguments!")
-            
+    def run_interactive(self, log, args):
+        self._validate_args(args)
+
         msg = []
         msg.append("Welcome to Shotgun Pipeline Toolkit Python!")
-        msg.append(sys.version)
+        msg.extend(sys.version.split("\n"))
         msg.append("Running on %s" % sys.platform)
         msg.append("")
-            
+
         tk_locals = {}
 
         # add sgtk module to locals:
@@ -108,20 +100,45 @@ class InteractiveShellAction(Action):
             tk_locals["shotgun"] = self.tk.shotgun
             msg.append("- A tk API handle is available via the tk variable")
             msg.append("- A Shotgun API handle is available via the shotgun variable")
-        
+
         if self.context:
             tk_locals["context"] = self.context
             msg.append("- Your current context is stored in the context variable")
-            
+
         if self.engine:
             tk_locals["engine"] = self.engine
             msg.append("- The shell engine can be accessed via the engine variable")
-            
+
+        for line in msg:
+            log.info(line)
+        log.info("")
+
+        self._run_interactive_internal(log, tk_locals, args)
+
+
+class InteractiveShellAction(InterpreterAction):
+    """
+    Action that starts an interactive shell
+    """
+    def __init__(self):
+        InterpreterAction.__init__(
+            self,
+            "shell",
+            Action.TK_INSTANCE,
+            "Starts an interactive Python shell for the current location.",
+            "Developer"
+        )
+
+    def _validate_args(self, args):
+        if len(args) != 0:
+            raise TankError("This command takes no arguments!")
+
+    def _run_interactive_internal(self, log, locals, args):
         # attempt install tab command completion
         try:
             import rlcompleter
             import readline
-        
+
             if "libedit" in readline.__doc__:
                 # macosx, some versions - see 
                 # http://stackoverflow.com/questions/7116038
@@ -129,8 +146,32 @@ class InteractiveShellAction(Action):
             else:
                 readline.parse_and_bind("tab: complete")
         except:
-            pass        
-        
-        code.interact(banner = "\n".join(msg), local=tk_locals)
-        
-        
+            pass
+
+        code.interact(local=locals)
+
+
+class ScriptAction(InterpreterAction):
+    """
+    Action that starts an interactive shell
+    """
+    def __init__(self):
+        InterpreterAction.__init__(
+            self,
+            "script",
+            Action.TK_INSTANCE,
+            "Runs a script using the current environment.",
+            "Developer"
+        )
+
+    def _validate_args(self, args):
+        if len(args) == 0:
+            raise TankError("You must specify at least one script.")
+
+    def _run_interactive_internal(self, log, locals, args):
+
+        log.info("Running script '%s'." % args[0])
+        if not os.path.exists(args[0]):
+            raise TankError("The script '%s' can't be found!")
+
+        code.InteractiveInterpreter(locals=locals).runcode(open(args[0]))
