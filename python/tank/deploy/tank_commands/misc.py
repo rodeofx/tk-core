@@ -174,4 +174,9 @@ class ScriptAction(InterpreterAction):
         if not os.path.exists(args[0]):
             raise TankError("The script '%s' can't be found!")
 
+        locals["log"] = log
+
+        # Override sys.argv so the script can access the arguments as if it was
+        # a regular python script.
+        sys.argv = args
         code.InteractiveInterpreter(locals=locals).runcode(open(args[0]))
