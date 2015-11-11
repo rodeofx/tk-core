@@ -152,7 +152,7 @@ class Engine(TankBundle):
         # loaded environment, add a reload button to the menu!
         for app in self.__applications.values():
             if isinstance(app.descriptor, TankDevDescriptor):
-                self.log_debug("App %s is registerered via a dev descriptor. Will add a reload "
+                self.log_debug("App %s is registered via a dev descriptor. Will add a reload "
                                "button to the actions listings."  % app)
                 from . import restart 
                 self.register_command("Reload and Restart", restart, {"short_name": "restart", "type": "context_menu"})                
@@ -504,7 +504,8 @@ class Engine(TankBundle):
     def register_panel(self, callback, panel_name="main", properties=None):
         """
         Similar to register_command, but instead of registering a menu item in the form of a
-        command, this method registers a UI panel.
+        command, this method registers a UI panel. A register_panel call should
+        be used in conjunction with a register_command call.
         
         Panels need to be registered if they should persist between DCC sessions (e.g. 
         for example 'saved layouts').
@@ -538,17 +539,17 @@ class Engine(TankBundle):
         # similar to register_command, track which app this request came from
         properties["app"] = current_app 
         
-        # now compose a unique id for this panel
-        # this is done based on the app instance name plus the given
-        # panel name. By using the instance name rather than the app name,
-        # we support the use case where more than one instance of an app exists 
-        # within a config.
+        # now compose a unique id for this panel.
+        # This is done based on the app instance name plus the given panel name.
+        # By using the instance name rather than the app name, we support the
+        # use case where more than one instance of an app exists within a
+        # config.
         panel_id = "%s_%s" % (current_app.instance_name, panel_name)
-        # to ensure the string is safe to use in most engines, 
+        # to ensure the string is safe to use in most engines,
         # sanitize to simple alpha-numeric form
         panel_id = re.sub("\W", "_", panel_id)
         panel_id = panel_id.lower()
-         
+
         # add it to the list of registered panels
         self.__panels[panel_id] = {"callback": callback, "properties": properties}
         
@@ -627,6 +628,68 @@ class Engine(TankBundle):
         else:
             # we don't have an invoker so just call the function:
             return func(*args, **kwargs)
+
+    def get_matching_commands(self, command_selectors):
+        """
+        Finds all the commands that match the given selectors.
+
+        Command selector structures are typically found in engine configurations
+        and are typically defined on the following form in yaml:
+
+        menu_favourites:
+        - {app_instance: tk-multi-workfiles, name: Shotgun File Manager...}
+        - {app_instance: tk-multi-snapshot,  name: Snapshot...}
+        - {app_instance: tk-multi-workfiles, name: Shotgun Save As...}
+        - {app_instance: tk-multi-publish,   name: Publish...}
+
+        Note that selectors that do not match a command will output a warning.
+
+        :param command_selectors: A list of command selectors, with each
+                                  selector having the following structure:
+                                    {
+                                      name: command-name,
+                                      app_instance: instance-name
+                                    }
+                                  An empty name ('') will select all the
+                                  commands of the given instance-name.
+
+        :returns:                 A list of tuples for all commands that match
+                                  the selectors. Each tuple has the format:
+                                    (instance-name, command-name, callback)
+        """
+        # return a dictionary grouping all the commands by instance name
+        commands_by_instance = {}
+        for (name, value) in self.commands.iteritems():
+            app_instance = value["properties"].get("app")
+            if app_instance is None:
+                continue
+            instance_name = app_instance.instance_name
+            commands_by_instance.setdefault(instance_name, []).append(
+                (name, value["callback"]))
+
+        # go through the selectors and return any matching commands
+        ret_value = []
+        for selector in command_selectors:
+            command_name = selector["name"]
+            instance_name = selector["app_instance"]
+            instance_commands = commands_by_instance.get(instance_name, [])
+
+            # add the commands if the name of the settings is ''
+            # or the name matches
+            matching_commands = [(instance_name, name, callback)
+                                 for (name, callback) in instance_commands
+                                 if not command_name or (command_name == name)]
+            ret_value.extend(matching_commands)
+
+            # give feedback if no commands were found
+            if not matching_commands:
+                self._engine.log_warning(
+                    "The requested command '%s' from app instance '%s' could "
+                    "not be matched.\nPlease make sure that you have the app "
+                    "installed and that it has successfully initialized." %
+                    (command_name, instance_name))
+
+        return ret_value
 
     ##########################################################################################
     # logging interfaces
@@ -1413,7 +1476,7 @@ def start_engine(engine_name, tk, context):
 
     return obj
 
-def find_app_settings(engine_name, app_name, tk, context):
+def find_app_settings(engine_name, app_name, tk, context, engine_instance_name=None):
     """
     Utility method to find the settings for an app in an engine in the
     environment determined for the context by pick environment hook.
@@ -1422,6 +1485,7 @@ def find_app_settings(engine_name, app_name, tk, context):
     :param app_name: system name of the app to look for
     :param tk: tank instance
     :param context: context to use when picking environment
+    :param engine_instance_name: The instance name of the engine to look for.
     
     :returns: list of dictionaries containing the engine name, 
               application name and settings for any matching
@@ -1432,13 +1496,18 @@ def find_app_settings(engine_name, app_name, tk, context):
     
     # get the environment via the pick_environment hook
     env_name = __pick_environment(engine_name, tk, context)
-
     env = tk.pipeline_configuration.get_environment(env_name, context)
     
-    # now find all engines whose descriptor matches the engine_name:
+    # now find all engines whose names match the engine_name:
     for eng in env.get_engines():
         eng_desc = env.get_engine_descriptor(eng)
-        if eng_desc.get_system_name() != engine_name:
+        eng_sys_name = eng_desc.get_system_name()
+
+        # Make sure that we get the right engine by comparing engine
+        # name and instance name, if provided.
+        if eng_sys_name != engine_name:
+            continue
+        if engine_instance_name and engine_instance_name != eng:
             continue
         
         # ok, found engine so look for app:
