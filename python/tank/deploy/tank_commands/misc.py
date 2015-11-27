@@ -73,13 +73,27 @@ class ClearCacheAction(Action):
 
 
 class InterpreterAction(Action):
+    """
+    Base class for actions that involve running Python scripts, either interactively or from a file.
+    """
 
     def __init__(self, *args, **kwargs):
+        """
+        Constructor.
+        """
         Action.__init__(self, *args, **kwargs)
         # hint that the shell engine should be started for this action, if possible
         self.wants_running_shell_engine = True
 
     def run_interactive(self, log, args):
+        """
+        Launches a Python interpreter. tk, shotgun, context and engine variables will
+        be exported accordingly. How the interpreter is actually launched is up to the derived
+        class in _run_interactive_internal.
+
+        :param log: Log for outputting text.
+        :param args: Arguments from the command line after the command's name.
+        """
         self._validate_args(args)
 
         msg = []
@@ -121,6 +135,9 @@ class InteractiveShellAction(InterpreterAction):
     Action that starts an interactive shell
     """
     def __init__(self):
+        """
+        Constructor.
+        """
         InterpreterAction.__init__(
             self,
             "shell",
@@ -130,10 +147,24 @@ class InteractiveShellAction(InterpreterAction):
         )
 
     def _validate_args(self, args):
+        """
+        Validates arguments for this command.
+
+        :param args: Arguments passed in.
+
+        :raises TankError: Raised if there are no arguments.
+        """
         if len(args) != 0:
             raise TankError("This command takes no arguments!")
 
     def _run_interactive_internal(self, log, locals, args):
+        """
+        Launches an interactive Python interpreter.
+
+        :param log: Log for outputting text.
+        :param locals: List of locals that need to be exposed to the interpreter.
+        :param args: Arguments from the command line after the command's name. Not used.
+        """
         # attempt install tab command completion
         try:
             import rlcompleter
@@ -156,6 +187,9 @@ class ScriptAction(InterpreterAction):
     Action that starts an interactive shell
     """
     def __init__(self):
+        """
+        Constructor.
+        """
         InterpreterAction.__init__(
             self,
             "script",
@@ -165,10 +199,24 @@ class ScriptAction(InterpreterAction):
         )
 
     def _validate_args(self, args):
+        """
+        Validates arguments for this command.
+
+        :param args: Arguments passed in.
+
+        :raises TankError: Raised if there are no arguments.
+        """
         if len(args) == 0:
             raise TankError("You must specify at least one script.")
 
     def _run_interactive_internal(self, log, locals, args):
+        """
+        Runs the script specified on the command line.
+
+        :param log: Log for outputting text.
+        :param locals: List of locals that need to be exposed to the interpreter.
+        :param args: Arguments from the command line after the command's name. Not used.
+        """
 
         log.info("Running script '%s'." % args[0])
         if not os.path.exists(args[0]):
