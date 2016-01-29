@@ -885,6 +885,20 @@ class Engine(TankBundle):
         
         # finally, clean up the widget trash:
         self.__cleanup_widget_trash()
+
+    def _get_minimal_refcount(self, widget):
+        # There should be 3 references:
+        # 1. self.__qt_widget_trash[n]
+        # 2. widget temporary
+        # 3. temporary used by sys.getrefcount
+        # In addition, if the widget is a tank dialog, then there will be an extra
+        # reference if it has a parent.
+        from .qt import tankqdialog
+        
+        if widget.__class__ == tankqdialog.TankQDialog:
+            return 3 if widget.parent() is None else 4
+        else:
+            return 3
         
 
     def __cleanup_widget_trash(self):
@@ -900,12 +914,10 @@ class Engine(TankBundle):
         still has events in the event queue will cause a hard crash!
         """
         still_trash = []
+        self.log_debug("Widget trash cleanup starts")
+        self.log_debug("---------------------------")
         for widget in self.__qt_widget_trash:
-            # There should be 3 references:
-            # 1. self.__qt_widget_trash[n]
-            # 2. widget temporary
-            # 3. temporary used by sys.getrefcount
-            if sys.getrefcount(widget) <= 3:
+            if sys.getrefcount(widget) <= self._get_minimal_refcount(widget):
                 # we have the only references to the widget
                 # so lets delete it!
                 try:
@@ -916,6 +928,7 @@ class Engine(TankBundle):
                     # ignore it!
                     pass
             else:
+                self.log_debug("Can't cleanup '%s', ref count is %d" % (widget, sys.getrefcount(widget)))
                 # there are still other references to this widget 
                 # out there so we should still keep track of it
                 still_trash.append(widget)
